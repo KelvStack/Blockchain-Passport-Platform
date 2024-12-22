@@ -43,3 +43,29 @@
     (string-utf8 32)
     bool
 )
+
+;; Read-only functions
+(define-read-only (get-passport (passport-id (string-utf8 32)))
+    (map-get? Passports {passport-id: passport-id})
+)
+
+(define-read-only (get-holder-passport (holder principal))
+    (map-get? HolderPassports holder)
+)
+
+(define-read-only (is-valid-passport? (passport-id (string-utf8 32)))
+    (match (map-get? Passports {passport-id: passport-id})
+        passport (and 
+            (get is-valid passport)
+            (> (get expiry-date passport) block-height)
+        )
+        false
+    )
+)
+
+(define-read-only (is-authority (address principal))
+    (match (map-get? PassportAuthorities address)
+        authority (get active authority)
+        false
+    )
+)

@@ -69,3 +69,78 @@
         false
     )
 )
+
+
+;; Public functions
+
+(define-public (add-authority (authority-address principal) (authority-name (string-utf8 100)))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-unauthorized)
+        (asserts! (is-none (map-get? PassportAuthorities authority-address)) err-already-exists)
+        
+        (map-set PassportAuthorities
+            authority-address
+            {
+                name: authority-name,
+                active: true,
+                authorized-since: block-height
+            }
+        )
+        (ok true)
+    )
+)
+
+(define-public (remove-authority (authority-address principal))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-unauthorized)
+        (asserts! (is-some (map-get? PassportAuthorities authority-address)) err-not-found)
+        
+        (map-set PassportAuthorities
+            authority-address
+            {
+                name: (get name (unwrap-panic (map-get? PassportAuthorities authority-address))),
+                active: false,
+                authorized-since: (get authorized-since (unwrap-panic (map-get? PassportAuthorities authority-address)))
+            }
+        )
+        (ok true)
+    )
+)
+
+(define-public (issue-passport 
+    (passport-id (string-utf8 32))
+    (holder principal)
+    (full-name (string-utf8 100))
+    (date-of-birth uint)
+    (nationality (string-utf8 50))
+    (validity-period uint)
+    (metadata-url (optional (string-utf8 256)))
+)
+    (begin
+        ;; Check authorization and validations
+        (asserts! (is-authority tx-sender) err-unauthorized)
+        (asserts! (is-none (map-get? PassportNumbers passport-id)) err-already-exists)
+        (asserts! (is-none (map-get? HolderPassports holder)) err-already-exists)
+        
+        ;; Set passport data
+        (map-set Passports
+            {passport-id: passport-id}
+            {
+                holder: holder,
+                full-name: full-name,
+                date-of-birth: date-of-birth,
+                nationality: nationality,
+                issue-date: block-height,
+                expiry-date: (+ block-height validity-period),
+                is-valid: true,
+                metadata-url: metadata-url
+            }
+        )
+        
+        ;; Set additional mappings
+        (map-set PassportNumbers passport-id true)
+        (map-set HolderPassports holder passport-id)
+        
+        (ok true)
+    )
+)

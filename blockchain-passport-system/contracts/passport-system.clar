@@ -8,6 +8,49 @@
 (define-constant err-not-found (err u4))
 (define-constant err-invalid (err u5))
 (define-constant err-operation-failed (err u6))
+(define-constant err-verification-failed (err u7))
+(define-constant err-expired (err u8))
+(define-constant err-emergency-active (err u9))
+(define-constant err-no-emergency (err u10))
+
+(define-map EmergencyContacts
+    {passport-id: (string-utf8 32)}
+    {
+        contact-name: (string-utf8 100),
+        contact-relationship: (string-utf8 50),
+        contact-info: (string-utf8 200)
+    }
+)
+
+(define-map PassportHistory
+    {passport-id: (string-utf8 32)}
+    {
+        revocation-history: (list 20 uint),
+        renewal-history: (list 20 uint),
+        verification-history: (list 20 uint)
+    }
+)
+
+(define-map VerificationRequests
+    {passport-id: (string-utf8 32), verifier: principal}
+    {
+        request-time: uint,
+        purpose: (string-utf8 200),
+        status: (string-utf8 20),
+        expiry-time: uint
+    }
+)
+
+(define-map EmergencyStatus
+    {passport-id: (string-utf8 32)}
+    {
+        status: (string-utf8 20),
+        reported-time: uint,
+        reported-by: principal,
+        details: (string-utf8 500)
+    }
+)
+
 
 ;; Data Maps
 (define-map Passports
@@ -69,6 +112,27 @@
         false
     )
 )
+
+;; Read-only functions for new features
+(define-read-only (get-passport-history (passport-id (string-utf8 32)))
+    (map-get? PassportHistory {passport-id: passport-id})
+)
+
+(define-read-only (get-emergency-contact (passport-id (string-utf8 32)))
+    (map-get? EmergencyContacts {passport-id: passport-id})
+)
+
+(define-read-only (get-emergency-status (passport-id (string-utf8 32)))
+    (map-get? EmergencyStatus {passport-id: passport-id})
+)
+
+(define-read-only (check-verification-request 
+    (passport-id (string-utf8 32))
+    (verifier principal)
+)
+    (map-get? VerificationRequests {passport-id: passport-id, verifier: verifier})
+)
+
 
 
 ;; Public functions
@@ -202,6 +266,131 @@
             )
         )
         
+        (ok true)
+    )
+)
+
+;; Emergency contact management
+(define-public (add-emergency-contact
+    (passport-id (string-utf8 32))
+    (contact-name (string-utf8 100))
+    (contact-relationship (string-utf8 50))
+    (contact-info (string-utf8 200))
+)
+    (let (
+        (passport (unwrap! (get-passport passport-id) err-not-found))
+    )
+        (asserts! (is-eq tx-sender (get holder passport)) err-unauthorized)
+        (ok (map-set EmergencyContacts
+            {passport-id: passport-id}
+            {
+                contact-name: contact-name,
+                contact-relationship: contact-relationship,
+                contact-info: contact-info
+            }
+        ))
+    )
+)
+
+;; Report passport emergency (lost/stolen)
+(define-public (report-emergency
+    (passport-id (string-utf8 32))
+    (details (string-utf8 500))
+)
+    (let (
+        (passport (unwrap! (get-passport passport-id) err-not-found))
+    )
+        (asserts! (or 
+            (is-eq tx-sender (get holder passport))
+            (is-authority tx-sender)
+        ) err-unauthorized)
+        
+        (map-set EmergencyStatus
+            {passport-id: passport-id}
+            {
+                status: u"REPORTED",  ;; Changed to a string literal with u prefix
+                reported-time: block-height,
+                reported-by: tx-sender,
+                details: details
+            }
+        )
+        
+        ;; Automatically invalidate passport
+        (try! (revoke-passport passport-id))
+        (ok true)
+    )
+)
+
+
+;; Request passport verification
+(define-public (request-verification
+   (passport-id (string-utf8 32))
+   (purpose (string-utf8 200))
+)
+   (let (
+       (passport (unwrap! (get-passport passport-id) err-not-found))
+   )
+       (asserts! (is-valid-passport? passport-id) err-invalid)
+       
+       (ok (map-set VerificationRequests
+           {passport-id: passport-id, verifier: tx-sender}
+           {
+               request-time: block-height,
+               purpose: purpose,
+               status: u"PENDING",  ;; Changed to UTF-8 string literal
+               expiry-time: (+ block-height u144) ;; 24 hours
+           }
+       ))
+   )
+)
+
+;; Approve verification request
+(define-public (approve-verification-request
+   (passport-id (string-utf8 32))
+   (verifier principal)
+)
+   (let (
+       (passport (unwrap! (get-passport passport-id) err-not-found))
+       (request (unwrap! (check-verification-request passport-id verifier) err-not-found))
+   )
+       (asserts! (is-eq tx-sender (get holder passport)) err-unauthorized)
+       (asserts! (< block-height (get expiry-time request)) err-expired)
+       
+       (map-set VerificationRequests
+           {passport-id: passport-id, verifier: verifier}
+           (merge request {status: u"APPROVED"})  ;; Changed to UTF-8 string literal
+       )
+       
+       ;; Update verification history
+       (match (get-passport-history passport-id)
+           history (map-set PassportHistory
+               {passport-id: passport-id}
+               (merge history {
+                   verification-history: (unwrap! 
+                       (as-max-len? (append (get verification-history history) block-height) u20)
+                       err-operation-failed)
+               }))
+           (map-set PassportHistory
+               {passport-id: passport-id}
+               {
+                   revocation-history: (list),
+                   renewal-history: (list),
+                   verification-history: (list block-height)
+               })
+       )
+       (ok true)
+   )
+)
+
+;; Clear emergency status
+(define-public (clear-emergency-status
+    (passport-id (string-utf8 32))
+)
+    (begin
+        (asserts! (is-authority tx-sender) err-unauthorized)
+        (asserts! (is-some (get-emergency-status passport-id)) err-no-emergency)
+        
+        (map-delete EmergencyStatus {passport-id: passport-id})
         (ok true)
     )
 )

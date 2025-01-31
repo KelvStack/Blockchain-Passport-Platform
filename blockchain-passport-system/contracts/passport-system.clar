@@ -381,3 +381,16 @@
        (ok true)
    )
 )
+
+;; Clear emergency status
+(define-public (clear-emergency-status
+    (passport-id (string-utf8 32))
+)
+    (begin
+        (asserts! (is-authority tx-sender) err-unauthorized)
+        (asserts! (is-some (get-emergency-status passport-id)) err-no-emergency)
+        
+        (map-delete EmergencyStatus {passport-id: passport-id})
+        (ok true)
+    )
+)

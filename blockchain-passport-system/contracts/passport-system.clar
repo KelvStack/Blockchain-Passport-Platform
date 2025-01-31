@@ -320,3 +320,64 @@
         (ok true)
     )
 )
+
+
+;; Request passport verification
+(define-public (request-verification
+   (passport-id (string-utf8 32))
+   (purpose (string-utf8 200))
+)
+   (let (
+       (passport (unwrap! (get-passport passport-id) err-not-found))
+   )
+       (asserts! (is-valid-passport? passport-id) err-invalid)
+       
+       (ok (map-set VerificationRequests
+           {passport-id: passport-id, verifier: tx-sender}
+           {
+               request-time: block-height,
+               purpose: purpose,
+               status: u"PENDING",  ;; Changed to UTF-8 string literal
+               expiry-time: (+ block-height u144) ;; 24 hours
+           }
+       ))
+   )
+)
+
+;; Approve verification request
+(define-public (approve-verification-request
+   (passport-id (string-utf8 32))
+   (verifier principal)
+)
+   (let (
+       (passport (unwrap! (get-passport passport-id) err-not-found))
+       (request (unwrap! (check-verification-request passport-id verifier) err-not-found))
+   )
+       (asserts! (is-eq tx-sender (get holder passport)) err-unauthorized)
+       (asserts! (< block-height (get expiry-time request)) err-expired)
+       
+       (map-set VerificationRequests
+           {passport-id: passport-id, verifier: verifier}
+           (merge request {status: u"APPROVED"})  ;; Changed to UTF-8 string literal
+       )
+       
+       ;; Update verification history
+       (match (get-passport-history passport-id)
+           history (map-set PassportHistory
+               {passport-id: passport-id}
+               (merge history {
+                   verification-history: (unwrap! 
+                       (as-max-len? (append (get verification-history history) block-height) u20)
+                       err-operation-failed)
+               }))
+           (map-set PassportHistory
+               {passport-id: passport-id}
+               {
+                   revocation-history: (list),
+                   renewal-history: (list),
+                   verification-history: (list block-height)
+               })
+       )
+       (ok true)
+   )
+)

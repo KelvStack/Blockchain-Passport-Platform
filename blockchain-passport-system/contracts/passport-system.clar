@@ -8,6 +8,49 @@
 (define-constant err-not-found (err u4))
 (define-constant err-invalid (err u5))
 (define-constant err-operation-failed (err u6))
+(define-constant err-verification-failed (err u7))
+(define-constant err-expired (err u8))
+(define-constant err-emergency-active (err u9))
+(define-constant err-no-emergency (err u10))
+
+(define-map EmergencyContacts
+    {passport-id: (string-utf8 32)}
+    {
+        contact-name: (string-utf8 100),
+        contact-relationship: (string-utf8 50),
+        contact-info: (string-utf8 200)
+    }
+)
+
+(define-map PassportHistory
+    {passport-id: (string-utf8 32)}
+    {
+        revocation-history: (list 20 uint),
+        renewal-history: (list 20 uint),
+        verification-history: (list 20 uint)
+    }
+)
+
+(define-map VerificationRequests
+    {passport-id: (string-utf8 32), verifier: principal}
+    {
+        request-time: uint,
+        purpose: (string-utf8 200),
+        status: (string-utf8 20),
+        expiry-time: uint
+    }
+)
+
+(define-map EmergencyStatus
+    {passport-id: (string-utf8 32)}
+    {
+        status: (string-utf8 20),
+        reported-time: uint,
+        reported-by: principal,
+        details: (string-utf8 500)
+    }
+)
+
 
 ;; Data Maps
 (define-map Passports

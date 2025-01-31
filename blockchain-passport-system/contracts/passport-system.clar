@@ -113,6 +113,27 @@
     )
 )
 
+;; Read-only functions for new features
+(define-read-only (get-passport-history (passport-id (string-utf8 32)))
+    (map-get? PassportHistory {passport-id: passport-id})
+)
+
+(define-read-only (get-emergency-contact (passport-id (string-utf8 32)))
+    (map-get? EmergencyContacts {passport-id: passport-id})
+)
+
+(define-read-only (get-emergency-status (passport-id (string-utf8 32)))
+    (map-get? EmergencyStatus {passport-id: passport-id})
+)
+
+(define-read-only (check-verification-request 
+    (passport-id (string-utf8 32))
+    (verifier principal)
+)
+    (map-get? VerificationRequests {passport-id: passport-id, verifier: verifier})
+)
+
+
 
 ;; Public functions
 

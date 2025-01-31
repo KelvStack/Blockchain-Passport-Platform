@@ -269,3 +269,54 @@
         (ok true)
     )
 )
+
+;; Emergency contact management
+(define-public (add-emergency-contact
+    (passport-id (string-utf8 32))
+    (contact-name (string-utf8 100))
+    (contact-relationship (string-utf8 50))
+    (contact-info (string-utf8 200))
+)
+    (let (
+        (passport (unwrap! (get-passport passport-id) err-not-found))
+    )
+        (asserts! (is-eq tx-sender (get holder passport)) err-unauthorized)
+        (ok (map-set EmergencyContacts
+            {passport-id: passport-id}
+            {
+                contact-name: contact-name,
+                contact-relationship: contact-relationship,
+                contact-info: contact-info
+            }
+        ))
+    )
+)
+
+;; Report passport emergency (lost/stolen)
+(define-public (report-emergency
+    (passport-id (string-utf8 32))
+    (details (string-utf8 500))
+)
+    (let (
+        (passport (unwrap! (get-passport passport-id) err-not-found))
+    )
+        (asserts! (or 
+            (is-eq tx-sender (get holder passport))
+            (is-authority tx-sender)
+        ) err-unauthorized)
+        
+        (map-set EmergencyStatus
+            {passport-id: passport-id}
+            {
+                status: u"REPORTED",  ;; Changed to a string literal with u prefix
+                reported-time: block-height,
+                reported-by: tx-sender,
+                details: details
+            }
+        )
+        
+        ;; Automatically invalidate passport
+        (try! (revoke-passport passport-id))
+        (ok true)
+    )
+)
